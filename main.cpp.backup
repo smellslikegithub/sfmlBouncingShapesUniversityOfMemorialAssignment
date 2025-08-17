@@ -1,0 +1,269 @@
+#include <iostream>
+#include<stdexcept>
+#include <SFML/Graphics.hpp>
+#include <SFML/Config.hpp>
+#include<fstream>
+#include<memory>
+#include <sstream>
+
+
+struct GameWindowDimension{
+    int width{};
+    int height{};
+    GameWindowDimension() = default;
+    GameWindowDimension(const int &width, const int &height): width(width), height(height) {}
+};
+
+
+struct Entity {
+    std::unique_ptr<sf::Shape> shape;
+    sf::String shapeColor;
+    sf::Text label;
+    float xVelocity{};
+    float yVelocity{};
+    float maximumXDirection{};
+    float maximumYDirection{};
+};
+
+
+struct GameConfig {
+    GameWindowDimension window;
+    std::vector<Entity> entities;
+    sf::Font font;
+    unsigned int fontSize{36};
+    sf::Color fontColor{sf::Color::White};
+
+};
+
+
+ static bool readConfigFile(GameConfig &parsedConfig, const std::string& configFilePath) {
+    try {
+        std::ifstream configFile(configFilePath);
+        if (configFile.is_open()) {
+            std::string line;
+            int lineCount = 0;
+            while (std::getline(configFile, line)) {
+                lineCount++;
+
+                std::istringstream iss(line);
+                std::string token;
+                if (!(iss >> token)) continue; // Crazy syntax: If the iss >> token fails to extract the word then skip, otherwise extract the token
+                if (token == "Window") {
+                    int width, height;
+                    if (!(iss >> width >> height)) {
+                        std::cout<<"Parsing error on line. "<<lineCount<<" Cannot parse token: <"<< token<< ">"<<std::endl;
+                        return false;
+                    }
+
+                    parsedConfig.window.width = width;
+                    parsedConfig.window.height = height;
+                    std::cout<<"Processed token : "<<token<<std::endl;
+
+                }
+
+                if (token == "Font") {
+                    std::string fontPath; unsigned int fontSize; unsigned int red; unsigned int green; unsigned int blue;
+                    if (!(iss >> fontPath >> fontSize >> red >> green >> blue)) {
+                        std::cout<<"Parsing error on line. "<<lineCount<<" Cannot parse token: <"<< token<< ">"<<std::endl;
+                        throw std::runtime_error ("Check the format/data/spacing etc!");
+
+                    }
+                    parsedConfig.font.loadFromFile(fontPath);
+                    parsedConfig.fontSize = fontSize;
+                    parsedConfig.fontColor = sf::Color(red, green, blue);
+                    std::cout<<"Processed token : "<<token<<std::endl;
+                }
+
+                if (token == "Circle") {
+                    // Get the following
+                    // <Token> <Label: Text inside the rendered entity> <width> <height> <x:velocity> <y:velocity> <r> <g> <b> <radius>
+                    std::string label; float x, y; float xVelocity, yVelocity; unsigned int red, green, blue; int radius;
+                    if (!(iss >> label >> x >> y >> xVelocity >> yVelocity >> red >> green >> blue >> radius)) {
+                        std::cout<<"Parsing error on line. "<<lineCount<<" Cannot parse token: <"<< token<< ">"<<std::endl;
+                        throw std::runtime_error ("Check the format/data/spacing etc!");
+                    }
+
+                    Entity circleEntity;
+                    circleEntity.shape = std::make_unique<sf::CircleShape>(radius);
+                    circleEntity.shape->setPosition(x, y);
+                    circleEntity.label = sf::Text(label, parsedConfig.font, parsedConfig.fontSize);
+                    circleEntity.xVelocity = xVelocity;
+                    circleEntity.yVelocity = yVelocity;
+
+                    // Calculate the maximum x and y direction for bounding within game window
+                    circleEntity.maximumXDirection = static_cast<float>(parsedConfig.window.width) - static_cast<float>(radius) * 2.0f;
+                    circleEntity.maximumYDirection = static_cast<float>(parsedConfig.window.height) - static_cast<float>(radius) * 2.0f;
+
+                    parsedConfig.entities.emplace_back(std::move(circleEntity));
+                    std::cout<<"Processed token : "<<token<<std::endl;
+
+                }
+
+                if (token == "Rectangle") {
+                    // Get the following
+                    // <Token> <Label: Text inside the rendered entity> <width> <height> <x:velocity> <y:velocity> <r> <g> <b> <width> <height>
+                    std::string label; float x, y; float xVelocity, yVelocity; unsigned int red, green, blue,width, height;
+                    if (!(iss >> label >> x >> y >> xVelocity >> yVelocity >> red >> green >> blue >> width >> height)) {
+                        std::cout<<"Parsing error on line. "<<lineCount<<" Cannot parse token: <"<< token<< ">"<<std::endl;
+                        throw std::runtime_error ("Check the format/data/spacing etc!");
+                    }
+
+                    Entity rectangleEntity;
+                    rectangleEntity.shape = std::make_unique<sf::RectangleShape>(sf::Vector2f(width, height));
+                    rectangleEntity.shape->setPosition(x, y);
+                    rectangleEntity.label = sf::Text(label, parsedConfig.font, parsedConfig.fontSize);
+                    rectangleEntity.xVelocity = xVelocity;
+                    rectangleEntity.yVelocity = yVelocity;
+
+                    // Calculate the maximum x and y direction for bounding within game window
+                    rectangleEntity.maximumXDirection = static_cast<float>(parsedConfig.window.width) - static_cast<float>(width) * 2.0f;
+                    rectangleEntity.maximumYDirection = static_cast<float>(parsedConfig.window.height) - static_cast<float>(height) * 2.0f;
+
+
+                    parsedConfig.entities.emplace_back(std::move(rectangleEntity));
+                    std::cout<<"Processed token : "<<token<<std::endl;
+                }
+
+
+            }
+            configFile.close();
+        }
+        return true;
+    }
+    catch (const std::exception &e) {
+        std::cout<<"Failed to load config file or config file has issues: "<<e.what()<<std::endl;
+        return false;
+    }
+
+}
+
+static void centerTextInShape(const sf::CircleShape& shape, sf::Text& text) {
+    // 1. Get text local bounds
+    sf::FloatRect textLocalBounds = text.getLocalBounds();
+
+    // 2. Set text origin to its visual center' Note that the left and top have default padding due to sf::text, we need to add them to the width and heigth to make it centred.
+    text.setOrigin(
+        textLocalBounds.left + textLocalBounds.width / 2.f,
+        textLocalBounds.top  + textLocalBounds.height / 2.f
+    );
+
+
+    // 3. Get the shape's center position
+    sf::Vector2f shapeCenter = sf::Vector2f(shape.getPosition().x +shape.getRadius(), shape.getPosition().y + shape.getRadius());
+
+    // 4. Place the text at the shape's center
+    text.setPosition(shapeCenter);
+
+
+}
+
+
+int main() {
+
+    std::cout<< SFML_VERSION_MAJOR << "." << SFML_VERSION_MINOR << "." << SFML_VERSION_PATCH<<"\n";
+
+    GameWindowDimension windowDimension = GameWindowDimension(800, 800);
+
+    sf::RenderWindow window(sf::VideoMode(windowDimension.width, windowDimension.height), "Bouncing Shapes");
+
+    GameConfig parsedConfig{};
+    bool parsingResult = readConfigFile(parsedConfig,"resources/config.txt");
+    if (parsingResult) {
+        std::cout<<"Length of entities: "<<parsedConfig.entities.size()<<std::endl;
+    }
+
+
+
+     // sf::CircleShape circleDebug(50);
+     // circleDebug.setFillColor(sf::Color::Blue);
+     // circleDebug.setPosition(200,200);
+
+    float x = 200.0f;
+    float y = 200.0f;
+    float velocityX = 0.1f; // Just setting something fixed for now. Later I can come back to this and implement frame paced movements.
+    float velocityY = 0.11f;
+
+    sf::CircleShape shape(50);
+    shape.setFillColor(sf::Color::Green);
+    shape.setPosition(x,y);
+
+
+    float maximumXDirection = windowDimension.width - shape.getRadius() * 2.0f;
+    float maximumYDirection = windowDimension.height - shape.getRadius() * 2.0f;
+
+    sf::Font font;
+    font.loadFromFile("assets/fonts/MondayFeelings.ttf");
+
+    float size = 100.f;
+    sf::RectangleShape rectangle(sf::Vector2f(size, size));
+    rectangle.setFillColor(sf::Color::White);
+    rectangle.setOrigin(size / 2.f, size / 2.f);
+    rectangle.setPosition(windowDimension.width / 2.0f , windowDimension.height/2.0f);
+
+
+    sf::Text label("Circle", font, 24);
+    label.setFillColor(sf::Color::Red);
+
+
+
+    //centerTextInShape(shape, label);
+
+    while (window.isOpen()) {
+        sf::Event event{};
+        while (window.pollEvent(event)) {
+            if (event.type == sf::Event::Closed)
+                window.close();
+        }
+        // Try moving the shape
+
+        sf::Vector2f position = shape.getPosition();
+
+
+        x += velocityX;
+        y += velocityY;
+
+
+        if (x<= 0.0f) {
+            x = 0.0f; // This is kind of important because the shape clips slightly outside if not reset to 0
+            velocityX = -1.0f * velocityX;
+        }
+        else if (y>= maximumYDirection) {
+            y = maximumYDirection;
+            velocityY = -1.0f * velocityY;
+        }
+
+        else if (y<= 0.0f) {
+            y = 0.0f;
+            velocityY = -1.0f * velocityY;
+        }
+        else if (x >= maximumXDirection) {
+            x = maximumXDirection; // This is kind of important because the shape clips slightly outside if not reset to maximumXDirection
+            velocityX = -1.0f * velocityX;
+        }
+
+        sf::Vector2f currentShapePosition = shape.getPosition();
+
+        //text.setPosition(currentShapePosition.x -shape.getRadius()/4, currentShapePosition.y-shape.getRadius()/4);
+        shape.setPosition(x, y);
+
+        centerTextInShape(shape, label);
+
+        window.clear();
+        window.draw(shape);
+        //window.draw(circleDebug);
+        window.draw(label);
+        window.display();
+    }
+}
+/*
+
+Window 1920 1080
+Font assets/fonts/MondayFeelings.ttf 20 128 128 255
+Circle CGreen 100 100 -0.3 0.2 0 255 0 50
+Circle CBlue 200 200 0.2 0.4 0 0 255 100
+Circle CPurple 300 300 -2 -1 255 0 255 75
+Rectangle RRed 200 200 4 4 255 0 0 50 25
+Rectangle RGrey 300 250 -2 2 100 100 100 50 100
+Rectangle RTeal 25 100 -2 -2 0 255 255 100 100
+
+*/

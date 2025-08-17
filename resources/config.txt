@@ -1,0 +1,9 @@
+Window 1920 1080
+Font assets/fonts/MondayFeelings.ttf 20 128 128 255
+LsdAcidHighMode 0
+Circle CGreen 100 100 -0.3 0.2 0 255 100 50
+Circle CBlue 200 200 0.2 0.4 0 0 255 100
+Circle CPurple 300 300 -0.11 0.22 255 0 255 75
+Rectangle RRed 200 200 0.2 0.1 255 0 0 500 100
+Rectangle RGrey 300 250 -0.5 0.76 100 100 100 50 100
+Rectangle RTeal 25 100 -0.22 -0.11 0 255 255 250 250
